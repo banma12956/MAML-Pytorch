@@ -83,13 +83,13 @@ def zscore(data, axis=None, inplace=False):
         If inplace is True: None
         else: New normalized Numpy-array"""
 
-    if axis is not None and axis >= an.ndim:
+    if axis is not None and axis >= data[0].ndim:
         raise np.AxisError('array only has {} axes'.format(array.ndim))
 
-    if inplace and not np.issubdtype(an.dtype, np.floating):
+    if inplace and not np.issubdtype(data[0].dtype, np.floating):
         raise TypeError('Cannot convert a non-float array to zscores')
 
-    array = np.vstack((*data))
+    array = np.vstack(data)
     mean = array.mean(axis=axis)
     std = array.std(axis=axis)
     '''
