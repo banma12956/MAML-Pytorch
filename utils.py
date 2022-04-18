@@ -71,7 +71,7 @@ class PushArray:
         if force:
             self._setcapacity(0)
 
-def zscore(un, an, axis=None, inplace=False):
+def zscore(data, axis=None, inplace=False):
     """Calculates zscore for an array. A cheap copy of scipy.stats.zscore.
 
     Inputs:
@@ -89,7 +89,7 @@ def zscore(un, an, axis=None, inplace=False):
     if inplace and not np.issubdtype(an.dtype, np.floating):
         raise TypeError('Cannot convert a non-float array to zscores')
 
-    array = np.vstack((un, an))
+    array = np.vstack((*data))
     mean = array.mean(axis=axis)
     std = array.std(axis=axis)
     '''
@@ -111,13 +111,12 @@ def zscore(un, an, axis=None, inplace=False):
     '''
     std[std == 0.0] = 1
     if inplace:
-        un -= mean
-        an -= mean
-        un /= std
-        an /= std
+        for d in data:
+            d -= mean
+            d /= std
         return None
     else:
-        return (un - mean) / std, (an - mean) / std
+        raise ValueError('I don\'t want to write it, please use inplace')
 
 def torch_inplace_maskarray(array, mask):
     """In-place masking of a Tensor, i.e. if `mask` is a boolean mask of same
