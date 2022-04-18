@@ -20,42 +20,28 @@ class ContigData(Dataset):
         self.path = root
 
         self.tasks = tasks
-        self.tnf = [None * len(tasks)]
-        self.rpkm = [None * len(tasks)]
+        self.tnf = [[None] for i in range(len(tasks))]
+        self.rpkm = [[None] for i in range(len(tasks))]
         for i in range(len(tasks)):
             path = os.path.join(root, tasks[i])
-            tnfs, contignames, contiglengths = self.calc_tnf(path, os.path.join(path, 'contigs.fna'))
+            tnfs  = self.calc_tnf(path)
             self.tnf[i] = tnfs
-            rpkms = calc_rpkm(path, len(tnfs))
+            rpkms = self.calc_rpkm(os.path.join(path, 'abundance.npz'), len(tnfs))
             self.rpkm[i] = rpkms
     
-    def calc_tnf(self, outdir, fastapath, annotated):
+    def calc_tnf(self, path):
         begintime = time.time()
-        print('\nLoading TNF from' + fastapath)
-        # print('Minimum sequence length: {}'.format(mincontiglength))
-        # Parse FASTA files. changed: since it only provides fasta files
-        print('Loading data from FASTA file {}'.format(fastapath))
-        with utils.Reader(fastapath, 'rb') as tnffile:
-            ret = parsecontigs.read_contigs(tnffile)
-
-        tnfs, contignames, contiglengths = ret
-        utils.write_npz(os.path.join(outdir, annotated+'tnf.npz'), tnfs)
-        utils.write_npz(os.path.join(outdir, annotated+'lengths.npz'), contiglengths)
-
+        print('\nLoading TNF from' + path)
+        tnfs = utils.read_npz(os.path.join(path, 'tnf.npz'))
         elapsed = round(time.time() - begintime, 2)
-        ncontigs = len(contiglengths)
-        nbases = contiglengths.sum()
-
-        print('Kept {} bases in {} sequences'.format(nbases, ncontigs))
         print('Processed TNF in {} seconds'.format(elapsed))
-
-        return tnfs, contignames, contiglengths
+        return tnfs
 
     def calc_rpkm(self, rpkmpath, ncontigs):
         begintime = time.time()
         print('\nLoading RPKM from' + rpkmpath)
         # If rpkm is given, we load directly from .npz file
-        print('Loading RPKM from npz array {}'.format(rpkmpath))
+        #print('Loading RPKM from npz array {}'.format(rpkmpath))
         rpkms = utils.read_npz(rpkmpath)
 
         if not rpkms.dtype == np.float32:
@@ -80,4 +66,4 @@ class ContigData(Dataset):
 
 
 if __name__ == '__main__':
-    dataset = ContigData('/data/yunxiang/data/', train, 10000, 50, 5, 50, ['gi', 'metahit', 'oral', 'skin', 'urog'])
+    dataset = ContigData('/data/yunxiang/data/', 'train', 10000, 50, 5, 50, ['gi', 'metahit', 'oral', 'skin', 'urog'])
