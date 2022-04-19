@@ -34,7 +34,9 @@ class Meta(nn.Module):
 
         self.net = Learner(config, args.imgc, args.imgsz)
         self.meta_optim = optim.Adam(self.net.parameters(), lr=self.meta_lr)
-
+        self.inner_optim = optim.SGD(self.net.parameters(), lr=self.update_lr)
+        self.meta_optim.zero_grad()
+        self.inner_optim.zero_grad()
 
 
 
@@ -77,19 +79,15 @@ class Meta(nn.Module):
         losses_q = [0 for _ in range(self.update_step + 1)]  # losses_q[i] is the loss on step i
         corrects = [0 for _ in range(self.update_step + 1)]
 
-
+        parameters = self.net.state_dict()
+        print("before training sum is", sum(p.sum() for p in self.net.parameters()))
         for i in range(task_num):
+            self.net.load_state_dict(parameters)
 
-            # 1. run the i-th task and compute loss for k=0
-            logits = self.net(x_spt[i], vars=None, bn_training=True)
-            loss = F.cross_entropy(logits, y_spt[i])
-            grad = torch.autograd.grad(loss, self.net.parameters())
-            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, self.net.parameters())))
-
-            # this is the loss and accuracy before first update
+            # eval before inner training
             with torch.no_grad():
                 # [setsz, nway]
-                logits_q = self.net(x_qry[i], self.net.parameters(), bn_training=True)
+                logits_q = self.net(x_qry[i], vars=None, bn_training=True)
                 loss_q = F.cross_entropy(logits_q, y_qry[i])
                 losses_q[0] += loss_q
 
@@ -97,10 +95,20 @@ class Meta(nn.Module):
                 correct = torch.eq(pred_q, y_qry[i]).sum().item()
                 corrects[0] = corrects[0] + correct
 
-            # this is the loss and accuracy after the first update
+            # first inner training step
+            logits = self.net(x_spt[i], vars=None, bn_training=True)
+            loss = F.cross_entropy(logits, y_spt[i])
+            
+            loss.backward()
+            self.inner_optim.step()
+            self.inner_optim.zero_grad()
+            # grad = torch.autograd.grad(loss, self.net.parameters())
+            # fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, self.net.parameters())))
+
+            # eval after first inner training step
             with torch.no_grad():
                 # [setsz, nway]
-                logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
+                logits_q = self.net(x_qry[i], vars=None, bn_training=True)
                 loss_q = F.cross_entropy(logits_q, y_qry[i])
                 losses_q[1] += loss_q
                 # [setsz]
@@ -110,19 +118,22 @@ class Meta(nn.Module):
 
             for k in range(1, self.update_step):
                 # 1. run the i-th task and compute loss for k=1~K-1
-                logits = self.net(x_spt[i], fast_weights, bn_training=True)
+                logits = self.net(x_spt[i], vars=None, bn_training=True)
                 loss = F.cross_entropy(logits, y_spt[i])
+                
+                loss.backward()
+                self.inner_optim.step()
+                self.inner_optim.zero_grad()
                 # 2. compute grad on theta_pi
-                grad = torch.autograd.grad(loss, fast_weights)
+                # grad = torch.autograd.grad(loss, fast_weights)
                 # 3. theta_pi = theta_pi - train_lr * grad
-                fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
-
-                logits_q = self.net(x_qry[i], fast_weights, bn_training=True)
-                # loss_q will be overwritten and just keep the loss_q on last update step.
-                loss_q = F.cross_entropy(logits_q, y_qry[i])
-                losses_q[k + 1] += loss_q
-
+                # fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
                 with torch.no_grad():
+                    logits_q = self.net(x_qry[i], vars=None, bn_training=True)
+                    # loss_q will be overwritten and just keep the loss_q on last update step.
+                    loss_q = F.cross_entropy(logits_q, y_qry[i])
+                    losses_q[k + 1] += loss_q
+                # with torch.no_grad():
                     pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
                     correct = torch.eq(pred_q, y_qry[i]).sum().item()  # convert to numpy
                     corrects[k + 1] = corrects[k + 1] + correct
@@ -132,14 +143,17 @@ class Meta(nn.Module):
         # end of all tasks
         # sum over all losses on query set across all tasks
         loss_q = losses_q[-1] / task_num
+        self.net.load_state_dict(parameters)
+        print("after loading sum is", sum(p.sum() for p in self.net.parameters()))
 
         # optimize theta parameters
-        self.meta_optim.zero_grad()
+        
         loss_q.backward()
         # print('meta update')
         # for p in self.net.parameters()[:5]:
         # 	print(torch.norm(p).item())
         self.meta_optim.step()
+        self.meta_optim.zero_grad()
 
 
         accs = np.array(corrects) / (querysz * task_num)
