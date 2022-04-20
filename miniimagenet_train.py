@@ -22,8 +22,9 @@ def main():
     torch.manual_seed(222)
     torch.cuda.manual_seed_all(222)
     np.random.seed(222)
+    random.seed(222)
 
-    print(args)
+    #print(args)
 
     config = [
         ('conv2d', [32, 3, 3, 3, 1, 0]),
@@ -51,14 +52,14 @@ def main():
 
     tmp = filter(lambda x: x.requires_grad, maml.parameters())
     num = sum(map(lambda x: np.prod(x.shape), tmp))
-    print(maml)
-    print('Total trainable tensors:', num)
+    #print(maml)
+    #print('Total trainable tensors:', num)
 
     # batchsz here means total episode number
-    mini = MiniImagenet('/home/i/tmp/MAML-Pytorch/miniimagenet/', mode='train', n_way=args.n_way, k_shot=args.k_spt,
+    mini = MiniImagenet('miniImagenet/', mode='train', n_way=args.n_way, k_shot=args.k_spt,
                         k_query=args.k_qry,
                         batchsz=10000, resize=args.imgsz)
-    mini_test = MiniImagenet('/home/i/tmp/MAML-Pytorch/miniimagenet/', mode='test', n_way=args.n_way, k_shot=args.k_spt,
+    mini_test = MiniImagenet('miniImagenet/', mode='test', n_way=args.n_way, k_shot=args.k_spt,
                              k_query=args.k_qry,
                              batchsz=100, resize=args.imgsz)
 
@@ -79,7 +80,7 @@ def main():
             if step % 30 == 0:
                 print('step:', step, '\ttraining acc:', accs)
 
-            if step % 500 == 0:  # evaluation
+            if step % 200 == 0:  # evaluation
                 db_test = DataLoader(mini_test, 1, shuffle=True, num_workers=1, pin_memory=True)
                 accs_all_test = []
 

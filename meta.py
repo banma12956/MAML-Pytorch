@@ -34,9 +34,6 @@ class Meta(nn.Module):
 
         self.net = Learner(config, args.imgc, args.imgsz)
         self.meta_optim = optim.Adam(self.net.parameters(), lr=self.meta_lr)
-        # self.inner_optim = optim.SGD(self.net.parameters(), lr=self.update_lr)
-        self.meta_optim.zero_grad()
-        # self.inner_optim.zero_grad()
 
 
 
@@ -80,11 +77,9 @@ class Meta(nn.Module):
         corrects = [0 for _ in range(self.update_step + 1)]
 
         temp_net = deepcopy(self.net)
-        print("before training sum is", sum(p.sum() for p in self.net.parameters()))
         for i in range(task_num):
-            self.copy_par(self.net, temp_net, copy=True)
-
-            # eval before inner training
+            self.copy_par(self.net, temp_net)
+            # this is the loss and accuracy before first update
             with torch.no_grad():
                 # [setsz, nway]
                 logits_q = self.net(x_qry[i], vars=None, bn_training=True)
@@ -95,14 +90,13 @@ class Meta(nn.Module):
                 correct = torch.eq(pred_q, y_qry[i]).sum().item()
                 corrects[0] = corrects[0] + correct
 
-            # first inner training step
+            # 1. run the i-th task and compute loss for k=0
             logits = self.net(x_spt[i], vars=None, bn_training=True)
             loss = F.cross_entropy(logits, y_spt[i])
             grad = torch.autograd.grad(loss, self.net.parameters())
             self.update_par(grad, self.update_lr)
-            # fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, self.net.parameters())))
 
-            # eval after first inner training step
+            # this is the loss and accuracy after the first update
             with torch.no_grad():
                 # [setsz, nway]
                 logits_q = self.net(x_qry[i], vars=None, bn_training=True)
@@ -128,18 +122,15 @@ class Meta(nn.Module):
                     correct = torch.eq(pred_q, y_qry[i]).sum().item()  # convert to numpy
                     corrects[k + 1] = corrects[k + 1] + correct
 
+        self.copy_par(self.net, temp_net)
         # end of all tasks
         # sum over all losses on query set across all tasks
         loss_q = losses_q[-1] / task_num
-        # self.net.load_state_dict(parameters)
-        self.copy_par(self.net, temp_net, copy=True)
-        print("after loading sum is", sum(p.sum() for p in self.net.parameters()))
 
         # optimize theta parameters
-        
+        self.meta_optim.zero_grad()
         loss_q.backward()
         self.meta_optim.step()
-        self.meta_optim.zero_grad()
 
 
         accs = np.array(corrects) / (querysz * task_num)
@@ -152,7 +143,7 @@ class Meta(nn.Module):
 
     def copy_par(self, target_network, network):
         for target_param, param in zip(target_network.parameters(), network.parameters()):
-            target_param.data.copy_(param.data)
+            target_param.data = param.data.clone().detach()
 
     def finetunning(self, x_spt, y_spt, x_qry, y_qry):
         """
@@ -233,3 +224,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
