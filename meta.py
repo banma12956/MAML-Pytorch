@@ -164,45 +164,39 @@ class Meta(nn.Module):
         # we finetunning on the copied model instead of self.net
         net = deepcopy(self.net)
 
+        # this is the loss and accuracy before first update
+        with torch.no_grad():
+            # [setsz, nway]
+            logits_q = net(x_qry, vars=Nons, bn_training=True)
+
+            pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
+            correct = torch.eq(pred_q, y_qry).sum().item()
+            corrects[0] = corrects[0] + correct
+
         # 1. run the i-th task and compute loss for k=0
         logits = net(x_spt)
         loss = F.cross_entropy(logits, y_spt)
         grad = torch.autograd.grad(loss, net.parameters())
-        fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, net.parameters())))
-
-        # this is the loss and accuracy before first update
-        with torch.no_grad():
-            # [setsz, nway]
-            logits_q = net(x_qry, net.parameters(), bn_training=True)
-            # [setsz]
-            pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
-            # scalar
-            correct = torch.eq(pred_q, y_qry).sum().item()
-            corrects[0] = corrects[0] + correct
+        self.update_par(grad, self.update_lr)
 
         # this is the loss and accuracy after the first update
         with torch.no_grad():
             # [setsz, nway]
-            logits_q = net(x_qry, fast_weights, bn_training=True)
+            logits_q = net(x_qry, vars=None, bn_training=True)
             # [setsz]
             pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
-            # scalar
             correct = torch.eq(pred_q, y_qry).sum().item()
             corrects[1] = corrects[1] + correct
 
         for k in range(1, self.update_step_test):
             # 1. run the i-th task and compute loss for k=1~K-1
-            logits = net(x_spt, fast_weights, bn_training=True)
+            logits = net(x_spt, vars=None, bn_training=True)
             loss = F.cross_entropy(logits, y_spt)
-            # 2. compute grad on theta_pi
-            grad = torch.autograd.grad(loss, fast_weights)
-            # 3. theta_pi = theta_pi - train_lr * grad
-            fast_weights = list(map(lambda p: p[1] - self.update_lr * p[0], zip(grad, fast_weights)))
+            grad = torch.autograd.grad(loss, net.parameters())
+            self.update_par(grad, self.update_lr)
 
-            logits_q = net(x_qry, fast_weights, bn_training=True)
-            # loss_q will be overwritten and just keep the loss_q on last update step.
+            logits_q = net(x_qry, vars=None, bn_training=True)
             loss_q = F.cross_entropy(logits_q, y_qry)
-
             with torch.no_grad():
                 pred_q = F.softmax(logits_q, dim=1).argmax(dim=1)
                 correct = torch.eq(pred_q, y_qry).sum().item()  # convert to numpy
